@@ -1,0 +1,118 @@
+PHP8 + swoole + redis 
+
+# 启动或热启动
+
+执行 `./run.sh` 实现启动或热重启
+
+
+## 格式约定
+
+1. 班级成员缓存格式
+
+```
+ [
+    [classid, fid, uid], [classid, fid, uid], [classid, fid, uid]
+ ]
+```
+2. 线程fid对应班级id表
+
+```
+[
+    [ online, fid , class_id ],
+    [ online, fid , class_id ],
+]
+
+```
+
+
+3. 聊天信息缓存
+
+其中msg_id由前端js生成唯一号码,  msg_data:  为json字符串 用户id+信息详情
+
+```
+ [
+    [history-classid, message_id, [user_id,message_id, message]],
+    [history-classid, message_id, [user_id,message_id, message]]
+ ]
+
+```
+
+4. 班级聊天格式
+
+```
+[
+    [class_id: xx,]   // 班级id
+    [user_id:  xx,]   // 班级用户的网站id
+    [msg_type: xx,]   //消息类型 : 群聊 group_chat /撤回 sendback  /点名 take_roll /禁言 deny_chat  /入班 login  /出班级 logout /心跳检测 heartCheck 
+    [identity: xx,]   // 身份 管理员/学生/老师
+    [msg_id: xxx     ]   //消息内容
+    [data: xxx     ]   //消息内容
+]
+
+```
+
+
+### 1. 流程简要说明:
+
+1. 检查消息格式, `token错误` 或 `格式错误` 关闭连接
+
+ 2. 广播当前班级成员
+
+    - 轮询班级 hGetAll
+
+    - 发送进入广播 (swoole 异步处理)
+
+3. 把进入的学员写入班级成员缓存 hSet
+
+4. 向学员发送当前班级历史聊天
+
+
+### 2. 处理接收信息:
+
+    1. 检查消息格式, `token错误` 或 `格式错误` 关闭连接
+
+    2. 轮询班级成员(redis hset 结构存储)
+
+    3. 根据类型不同处理
+        - 班级聊天: 
+            1. 发送广播给其他成员
+            2. 写入聊天缓存
+        - 撤回聊天: 
+            1. 发送广播给其他成员,  
+            2. 删除对应聊天缓存
+        - 禁言
+            1. 发送广播给其他成员
+        - 点名
+            1. 发送广播给其他成员
+        - 加入班级
+            1. 发送广播给其他成员
+            2. 增加班级缓存
+        - 退出班级
+            1. 发送广播给其他成员
+            2. 删除对应班级缓存
+### 3. 断开信息:
+
+    1. 轮询班级成员(redis hset 结构存储)
+    2. 删除对应班级的成员缓存
+    3. 广播其他成员
+
+
+## 补充部分:
+
+1.  端口被占用 `Address already in use` 处理
+
+```
+netstat -apn | grep 端口号
+kill -9 pid
+```
+
+2. 设置websocket的ssl
+    - 1. js部分协议修改为`wss`
+    - 2. 服务器部分
+    ```php
+    $this->_serv = new swoole_websocket_server("0.0.0.0", 9502, SWOOLE_PROCESS,SWOOLE_SOCK_TCP|SWOOLE_SSL);
+    $this->_serv->set([
+        "ssl_cert_file" => "/www/server/panel/vhost/ssl/zh.haomooc.com/fullchain.pem",
+        "ssl_key_file" => "/www/server/panel/vhost/ssl/zh.haomooc.com/privkey.pem"
+    ]);
+    ```
